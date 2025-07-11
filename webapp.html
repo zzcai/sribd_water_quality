@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>中山鱼塘监控案例展示</title>
+  <!-- 引入 Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    /* 全屏显示地图 */
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+    }
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+    .polygon-label {
+      background: transparent !important; /* 移除背景 */
+      border: none !important;            /* 移除边框 */
+      color: #ffffff; /* 白色字体 */
+      text-shadow: 
+        -1px -1px 0 #000,  
+        1px -1px 0 #000, 
+        -1px 1px 0 #000, 
+        1px 1px 0 #000; /* 黑色边框效果 */
+      font-size: 16px; /* 调大字体 */
+      font-weight: bold; /* 可选：加粗文字使效果更明显 */
+    }
+
+    /* 标题位于顶部中间 */
+    .title-overlay {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255, 255, 255, 0.8);
+      padding: 10px 20px;
+      font-size: 20px;
+      font-weight: bold;
+      border-radius: 4px;
+      z-index: 1000;
+    }
+    /* 时间序列展示区位于底部中间 */
+    .time-series-overlay {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255, 255, 255, 0.8);
+      padding: 10px;
+      width: 80%;
+      border-radius: 4px;
+      text-align: center;
+      z-index: 1000;
+      height: 33vh;
+    }
+    /* 左侧选项面板 */
+    .left-panel-overlay {
+      position: absolute;
+      left: 10px;
+      top: 10%;
+      background: rgba(245, 245, 245, 0.9);
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      width: 150px;
+      z-index: 1000;
+    }
+    .left-panel-overlay h2 {
+      font-size: 16px;
+      margin: 0 0 10px;
+    }
+    .left-panel-overlay label {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 14px;
+    }
+    /* 日期选择控件，放在左侧选项面板下方 */
+    .date-selector-overlay {
+      margin-top: 10px;
+      background: rgba(245,245,245,0.9);
+      padding: 5px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    /* 右侧图例面板 */
+    .legend-overlay {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-100%);
+      background: rgba(245, 245, 245, 0.9);
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      width: 150px;
+      z-index: 1000;
+    }
+    .legend-overlay h2 {
+      font-size: 16px;
+      margin: 0 0 10px;
+    }
+    .legend-overlay p {
+      font-size: 14px;
+      margin: 0;
+    }
+
+    /* 版权信息容器 */
+
+    .creator-info {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end; /* 内容右对齐 */
+        background-color: rgba(255, 255, 255, 0.8);
+        padding: 15px;
+        border-radius: 4px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        z-index: 1000;
+        /* 移除 max-width，让宽度自适应内容 */
+        white-space: nowrap; /* 强制文字不换行 */
+    }
+
+    .info-logo {
+        width: 240px;             /* 图片宽度 */
+        height: 40px;            /* 图片高度 */
+        margin-bottom: 8px;      /* 图片与文字的间距 */
+        object-fit: contain;
+    }
+
+    .info-text {
+        font-size: 14px;
+        line-height: 1.5;
+        text-align: center;       /* 文字右对齐 */
+    }
+
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <!-- 页面覆盖元素 -->
+  <div class="title-overlay">中山市阜沙镇鱼塘监控案例展示</div>
+  <div class="left-panel-overlay">
+    <h2>水质参数</h2>
+    <label><input type="radio" name="option" value="叶绿素a" checked> 叶绿素a</label>
+    <label><input type="radio" name="option" value="悬浮固体"> 悬浮固体</label>
+    <label><input type="radio" name="option" value="需氧量"> 化学需氧量</label>
+    <label><input type="radio" name="option" value="总氮"> 总氮</label>
+    <label><input type="radio" name="option" value="总磷"> 总磷</label>
+    <!-- 日期选择控件，初始时 min 固定，max由JS动态设置 -->
+    <div class="date-selector-overlay">
+      <label for="dateSelector">数据日期：</label>
+      <input type="date" id="dateSelector" min="2023-01-01">
+    </div>
+  </div>
+  <div class="legend-overlay">
+    <h2>图例</h2>
+    <p>图例内容...</p>
+  </div>
+  <div class="time-series-overlay">
+    <div id="time-series-plot">【请点击地图上的鱼塘以查看时间序列】</div>
+  </div>
+  <div class="creator-info">
+    <img src="logo.png" class="info-logo">
+    <div class="info-text">
+      版权所有 © 2025, 蔡展章<br>
+      深圳市大数据研究院<br>
+      人工智能大模型研究中心<br>
+      联系方式：caizhanzhang@sribd.cn
+    </div>
+  </div>
+
+  <!-- 引入 Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <!-- 引入 Papa Parse -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+  <!-- 引入 Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <script>
+    // 设置日期选择控件的最大值为当前日期
+    (function setDateRange(){
+      var today = new Date();
+      var dd = String(today.getDate()).padStart(2, '0');
+      var mm = String(today.getMonth() + 1).padStart(2, '0'); // 月份从0开始
+      var yyyy = today.getFullYear();
+      var currentDate = yyyy + '-' + mm + '-' + dd;
+      document.getElementById("dateSelector").setAttribute("max", currentDate);
+    })();
+
+    // 全局变量：当前选中水质参数、鱼塘编号及选定日期（格式：YYYY-MM-DD）
+    var selectedVariable = "叶绿素a";
+    var selectedPolygonId = null;
+    var selectedDate = null; // 初始时为空，将在加载CSV数据时赋值最新日期
+    var waterLayer; // 保存鱼塘边界图层
+
+    // 定义参数对应的 CSV 文件路径
+    var varMapping = {
+      "叶绿素a": "ChlA_time_series.csv",
+      "悬浮固体": "SS_time_series.csv",
+      "需氧量": "COD_time_series.csv",
+      "总氮": "TN_time_series.csv",
+      "总磷": "TP_time_series.csv"
+    };
+
+    // 定义各参数的数值范围及单位（注意：叶绿素a单位为 µg/L，其它均为 mg/L）
+    var parameterRanges = {
+      "叶绿素a": {min: 0, max: 30, unit: "µg/L"},
+      "悬浮固体": {min: 0, max: 100, unit: "mg/L"},
+      "需氧量": {min: 0, max: 50, unit: "mg/L"},
+      "总氮": {min: 0, max: 10, unit: "mg/L"},
+      "总磷": {min: 0, max: 0.4, unit: "mg/L"}
+    };
+
+    // 颜色插值函数：在两个十六进制颜色间进行线性插值
+    function interpolateColor(color1, color2, factor) {
+      if (arguments.length < 3) { factor = 0.5; }
+      if (color1[0] === '#') color1 = color1.slice(1);
+      if (color2[0] === '#') color2 = color2.slice(1);
+      var r1 = parseInt(color1.substr(0, 2), 16),
+          g1 = parseInt(color1.substr(2, 2), 16),
+          b1 = parseInt(color1.substr(4, 2), 16);
+      var r2 = parseInt(color2.substr(0, 2), 16),
+          g2 = parseInt(color2.substr(2, 2), 16),
+          b2 = parseInt(color2.substr(4, 2), 16);
+      var r = Math.round(r1 + factor * (r2 - r1)),
+          g = Math.round(g1 + factor * (g2 - g1)),
+          b = Math.round(b1 + factor * (b2 - b1));
+      return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+    }
+
+    // 根据当前参数与数值计算归一化后返回 QGIS Spectral 渐变颜色
+    // 定义关键颜色：低值蓝色 (#2c7bb6)，中间黄色 (#ffffbf)，高值红色 (#d7191c)
+    function getColor(value, parameter) {
+      var range = parameterRanges[parameter];
+      var min = range.min, max = range.max;
+      var normalized = (value - min) / (max - min);
+      normalized = Math.min(Math.max(normalized, 0), 1);
+      if (normalized <= 0.5) {
+        var factor = normalized / 0.5;
+        return interpolateColor("#2c7bb6", "#ffffbf", factor);
+      } else {
+        var factor = (normalized - 0.5) / 0.5;
+        return interpolateColor("#ffffbf", "#d7191c", factor);
+      }
+    }
+
+    // 更新图例：显示 QGIS Spectral 渐变色条及数值范围与单位
+    function updateLegend() {
+      var range = parameterRanges[selectedVariable];
+      var legendContent = `<h2>图例 (${range.unit})</h2>`;
+      legendContent += `<div style="width: 100%; height: 20px; background: linear-gradient(to right, #2c7bb6, #ffffbf, #d7191c);"></div>`;
+      legendContent += `<div style="display: flex; justify-content: space-between; font-size: 12px;">` +
+                       `<span>${range.min}</span><span>${range.max}</span></div>`;
+      document.querySelector(".legend-overlay").innerHTML = legendContent;
+    }
+
+    // 更新时间序列图表：显示全时序数据，但高亮当前选定日期对应的数据点（仅显示大粗点）
+    function updateTimeSeriesPlot() {
+      var tsDiv = document.getElementById("time-series-plot");
+      if (!selectedPolygonId) return;
+      var filePath = varMapping[selectedVariable];
+      Papa.parse(filePath, {
+        download: true,
+        header: true,
+        complete: function(results) {
+          var data = results.data;
+          var timeField = results.meta.fields[0]; // 假定第一列为日期
+          var labels = [];
+          var values = [];
+          data.forEach(function(row) {
+            if (row[timeField] && row[selectedPolygonId] !== undefined && row[selectedPolygonId] !== "") {
+              labels.push(row[timeField]);
+              values.push(parseFloat(row[selectedPolygonId]));
+            }
+          });
+          // 若用户未选定日期，则取最新日期
+          if (!selectedDate && labels.length > 0) {
+            selectedDate = labels[labels.length - 1];
+            document.getElementById("dateSelector").value = selectedDate;
+          }
+          
+          // 构造点样式数组：非选中日期的点不显示，当前选中日期的点设置为较大且粗
+          var pointRadii = labels.map(function(date) {
+            return (date === selectedDate) ? 8 : 0;
+          });
+          var pointBorderWidths = labels.map(function(date) {
+            return (date === selectedDate) ? 2 : 0;
+          });
+          // 保留原有的颜色设置（选中为蓝色，其它为半透明红色，但实际点不显示）
+          var pointColors = labels.map(function(date) {
+            return (date === selectedDate) ? "black" : "rgba(255,0,0,0.3)";
+          });
+          
+          tsDiv.innerHTML = "<canvas id='tsChartCanvas' style='height: 33vh;'></canvas>";
+          var ctx = document.getElementById("tsChartCanvas").getContext('2d');
+          if (window.myLineChart) {
+            window.myLineChart.destroy();
+          }
+          window.myLineChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: labels,
+              datasets: [{
+                label: "水质参数：" + selectedVariable + "  (鱼塘编号：" + selectedPolygonId + ")",
+                data: values,
+                fill: true,
+                backgroundColor: "rgba(0.3, 0.3, 0.3, 0.3)",
+                borderColor: "red",
+                // 设置各数据点的半径与边框宽度
+                pointRadius: pointRadii,
+                pointBorderWidth: pointBorderWidths,
+                pointBackgroundColor: pointColors,
+                tension: 1
+              }]
+            },
+            options: {
+              maintainAspectRatio: false,
+              scales: {
+                x: { title: { display: true, text: '时间' } },
+                y: { title: { display: true, text: '数值' } }
+              }
+            }
+          });
+        },
+        error: function(err) {
+          console.error("CSV加载错误：", err);
+        }
+      });
+    }
+
+
+    // 更新所有 polygon 样式，依据CSV中对应日期的数据计算（仅更新颜色）
+    function updatePolygonsStyle() {
+      var filePath = varMapping[selectedVariable];
+      Papa.parse(filePath, {
+        download: true,
+        header: true,
+        complete: function(results) {
+          var data = results.data;
+          if (!data || data.length === 0) return;
+          var timeField = results.meta.fields[0];
+          var targetRow = null;
+          // 查找与选定日期匹配的行；若未选定则使用最新记录
+          if (selectedDate) {
+            for (var i = 0; i < data.length; i++) {
+              if (data[i][timeField] === selectedDate) {
+                targetRow = data[i];
+                break;
+              }
+            }
+          }
+          if (!targetRow) {
+            for (var i = data.length - 1; i >= 0; i--) {
+              if (data[i][timeField]) {
+                targetRow = data[i];
+                if (!selectedDate) {
+                  selectedDate = data[i][timeField];
+                  document.getElementById("dateSelector").value = selectedDate;
+                }
+                break;
+              }
+            }
+          }
+          updateLegend();
+          waterLayer.eachLayer(function(layer) {
+            var polygonId = layer.feature.properties.id;
+            var value = parseFloat(targetRow[polygonId]);
+            if (!isNaN(value)) {
+              var newColor = getColor(value, selectedVariable);
+              layer.setStyle({ fillColor: newColor });
+            }
+          });
+        },
+        error: function(err) {
+          console.error("CSV加载错误：", err);
+        }
+      });
+    }
+
+    // 为左侧 radio 按钮添加监听事件
+    var radioButtons = document.getElementsByName("option");
+    for (var i = 0; i < radioButtons.length; i++) {
+      radioButtons[i].addEventListener("change", function(e) {
+        selectedVariable = this.value;
+        updateTimeSeriesPlot();
+        updatePolygonsStyle();
+      });
+    }
+
+    // 为日期选择控件添加事件监听器
+    document.getElementById("dateSelector").addEventListener("change", function(e) {
+      selectedDate = this.value;
+      updateTimeSeriesPlot();
+      updatePolygonsStyle();
+    });
+
+    // 初始化地图
+    var southWest = L.latLng(20.2, 110);
+    var northEast = L.latLng(25.5, 117);
+    var bounds = L.latLngBounds(southWest, northEast);
+    
+    var map = L.map('map', {
+      center: [22.75, 113.25],
+      zoom: 15,
+      minZoom: 6,
+      maxZoom: 17,
+      maxBounds: bounds,
+      maxBoundsViscosity: 1.0
+    });
+    
+    L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles © Esri'
+      }
+    ).addTo(map);
+    
+    var zhongshanLayer, provinceLayer, cityLayer;
+
+    // 加载 zhongshan_boundary.geojson
+    fetch('zhongshan_boundary.geojson')
+      .then(function(response) {
+        return response.json();
+      })
+      .then(function(geojsonData) {
+        zhongshanLayer = L.geoJSON(geojsonData, {
+          style: function(feature) {
+            return {
+              color: "#ff0000",
+              weight: 5,
+              opacity: 1,
+              dashArray: null,
+              fillColor: "#5b5e5e",
+              fillOpacity: 0
+            };
+          },
+          onEachFeature: function(feature, layer) {
+            if (feature.properties && feature.properties.name) {
+              layer.bindTooltip(feature.properties.name, {
+                permanent: true,
+                direction: 'center',
+                className: 'polygon-label'
+              });
+            }
+          }
+        });
+        updateLayers();
+      })
+      .catch(function(error) {
+        console.error('加载 zhongshan_boundary.geojson 出错:', error);
+      });
+
+    // 加载 province_boundary.geojson
+    fetch('province_boundary.geojson')
+      .then(function(response) {
+        return response.json();
+      })
+      .then(function(provinceData) {
+        provinceLayer = L.geoJSON(provinceData, {
+          style: function(feature) {
+            return {
+              color: "#000000",   // 使用黑色线条
+              weight: 7,          // 线条加粗更明显
+              opacity: 1,
+              dashArray: null,
+              fillOpacity: 0
+            };
+          }
+        });
+        updateLayers();
+      })
+      .catch(function(error) {
+        console.error('加载 province_boundary.geojson 出错:', error);
+      });
+
+    // 加载 city_boundary.geojson
+    fetch('city_boundary.geojson')
+      .then(function(response) {
+        return response.json();
+      })
+      .then(function(cityData) {
+        cityLayer = L.geoJSON(cityData, {
+          style: function(feature) {
+            return {
+              color: "#808080",   // 灰色线
+              weight: 3,
+              opacity: 1,
+              dashArray: null,
+              fillOpacity: 0
+            };
+          },
+          onEachFeature: function(feature, layer) {
+            if (feature.properties && feature.properties.NAME) {
+              layer.bindTooltip(feature.properties.NAME, {
+                permanent: true,
+                direction: 'center',
+                className: 'polygon-label'
+              });
+            }
+          }
+        });
+        updateLayers();
+      })
+      .catch(function(error) {
+        console.error('加载 city_boundary.geojson 出错:', error);
+      });
+
+    // 根据当前缩放级别更新各图层显示情况
+    function updateLayers() {
+      var zoom = map.getZoom();
+
+      // zhongshan_boundary.geojson：缩放在 10～13 之间显示
+      if (zhongshanLayer) {
+        if (zoom >= 11 && zoom <= 13) {
+          if (!map.hasLayer(zhongshanLayer)) {
+            map.addLayer(zhongshanLayer);
+          }
+        } else {
+          if (map.hasLayer(zhongshanLayer)) {
+            map.removeLayer(zhongshanLayer);
+          }
+        }
+      }
+
+      // province_boundary.geojson：缩放低于 12 时显示
+      if (provinceLayer) {
+        if (zoom <= 10) {
+          if (!map.hasLayer(provinceLayer)) {
+            map.addLayer(provinceLayer);
+          }
+        } else {
+          if (map.hasLayer(provinceLayer)) {
+            map.removeLayer(provinceLayer);
+          }
+        }
+      }
+
+      // city_boundary.geojson：缩放低于 12 时显示
+      if (cityLayer) {
+        if (zoom >= 9 && zoom <= 11) {
+          if (!map.hasLayer(cityLayer)) {
+            map.addLayer(cityLayer);
+          }
+        } else {
+          if (map.hasLayer(cityLayer)) {
+            map.removeLayer(cityLayer);
+          }
+        }
+      }
+    }
+
+    map.on('zoomend', updateLayers);
+
+    // 初始化时更新图层显示
+    updateLayers();
+
+
+    
+    // 加载鱼塘边界 geojson 文件
+    fetch('fish_ponds_boundary.geojson')
+      .then(function(response) { return response.json(); })
+      .then(function(geojsonData) {
+        waterLayer = L.geoJSON(geojsonData, {
+          style: function(feature) {
+            return {
+              color: "#000",
+              weight: 1,
+              opacity: 1,
+              fillColor: "#00e5ff",
+              fillOpacity: 1
+            };
+          },
+          onEachFeature: function(feature, layer) {
+            layer.on('click', function(e) {
+              var props = feature.properties;
+              selectedPolygonId = props.id;
+              var popupContent =
+                "<b>鱼塘编号:</b> " + props.id + "<br>" +
+                "<b>联系人:</b> " + props.联系人 + "<br>" +
+                "<b>镇区:</b> " + props.镇区 + "<br>" +
+                "<b>电话:</b> " + props.电话 + "<br>" +
+                "<b>面积:</b> " + props.面积 + "亩<br>" +
+                "<b>养殖种类:</b> " + props.养殖种类;
+              layer.bindPopup(popupContent).openPopup();
+              updateTimeSeriesPlot();
+            });
+          }
+        }).addTo(map);
+        map.fitBounds(waterLayer.getBounds());
+        // 初始加载时更新polygon样式与时间序列图
+        updatePolygonsStyle();
+        updateTimeSeriesPlot();
+      })
+      .catch(function(error) {
+        console.error('加载 fish_ponds_boundary.geojson 出错:', error);
+      });
+  </script>
+</body>
+</html>
